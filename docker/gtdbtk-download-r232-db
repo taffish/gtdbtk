@@ -1,0 +1,222 @@
+#!/bin/sh
+set -eu
+
+VERSION=R232
+DEFAULT_DBROOT="${PWD:-.}"
+DBROOT="${TAFFISH_GTDBTK_DBROOT:-$DEFAULT_DBROOT}"
+URL="${TAFFISH_GTDBTK_R232_URL:-https://data.gtdb.ecogenomic.org/releases/release232/232.0/auxillary_files/gtdbtk_package/full_package/gtdbtk_r232_data.tar.gz}"
+MIRROR_URL="${TAFFISH_GTDBTK_R232_MIRROR_URL:-https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/auxillary_files/gtdbtk_package/full_package/gtdbtk_data.tar.gz}"
+MD5="${TAFFISH_GTDBTK_R232_MD5:-25a59e0352b1fd150c589f56559767d4}"
+ARCHIVE_NAME="gtdbtk_r232_data.tar.gz"
+DRY_RUN=0
+REMOVE_ARCHIVE=0
+FORCE=0
+
+usage() {
+  cat <<'EOF'
+gtdbtk-download-r232-db
+
+Download and install the GTDB-Tk R232 reference package.
+
+This command is packaged inside taf-gtdbtk. By default it writes to the
+current working directory:
+  $PWD
+
+The command downloads the fixed R232 full package, verifies its MD5 checksum,
+creates DBROOT/downloads, stores the compressed archive there, extracts the
+release under DBROOT, and creates DBROOT/r232 as the default taf-gtdbtk
+database link.
+
+Usage:
+  gtdbtk-download-r232-db [options]
+
+Options:
+  --db-root DIR       Install under DIR instead of the default DBROOT.
+  --remove-archive    Delete the compressed archive after extraction.
+  --force             Re-download and re-extract even if files already exist.
+  --dry-run           Print planned paths and URLs without downloading.
+  -h, --help          Show this help text.
+
+Environment overrides:
+  TAFFISH_GTDBTK_DBROOT          Same as --db-root.
+  TAFFISH_GTDBTK_R232_URL       Primary R232 archive URL.
+  TAFFISH_GTDBTK_R232_MIRROR_URL Mirror archive URL.
+  TAFFISH_GTDBTK_R232_MD5       Expected archive MD5.
+
+Examples:
+  mkdir -p ~/.local/share/taffish/databases/gtdbtk
+  cd ~/.local/share/taffish/databases/gtdbtk
+  taf-gtdbtk gtdbtk-download-r232-db
+
+  sudo mkdir -p /usr/local/share/taffish/databases/gtdbtk
+  sudo chown "$(id -u):$(id -g)" /usr/local/share/taffish/databases/gtdbtk
+  cd /usr/local/share/taffish/databases/gtdbtk
+  taf-gtdbtk gtdbtk-download-r232-db
+  sudo chmod -R a+rX /usr/local/share/taffish/databases/gtdbtk
+
+  taf-gtdbtk gtdbtk-download-r232-db --db-root "$PWD/gtdbtk-db"
+  taf-gtdbtk gtdbtk-download-r232-db --remove-archive
+
+The helper runs inside the container. Prefer cd into the host database root and
+run without --db-root. If --db-root is used, choose a path already visible to
+the selected container backend.
+
+After installation, taf-gtdbtk automatically reuses DBROOT/r232 when DBROOT is
+one of the documented personal or site database directories. For other paths,
+set TAFFISH_GTDBTK_DATA_PATH to DBROOT/r232.
+
+If DBROOT/r232 already exists, this helper leaves it unchanged unless --force
+is used.
+
+On rootful Docker/Linux, host files created by the container may be owned by
+root. If needed, fix ownership on the host after download:
+  sudo chown -R "$(id -u):$(id -g)" /path/to/database-root
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --db-root)
+      if [ "$#" -lt 2 ]; then
+        printf >&2 'missing value for --db-root\n'
+        exit 1
+      fi
+      DBROOT=$2
+      shift 2
+      ;;
+    --db-root=*)
+      DBROOT=${1#--db-root=}
+      shift
+      ;;
+    --remove-archive)
+      REMOVE_ARCHIVE=1
+      shift
+      ;;
+    --force)
+      FORCE=1
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf >&2 'unknown option: %s\n' "$1"
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+need_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    printf >&2 'missing required command: %s\n' "$1"
+    exit 1
+  fi
+}
+
+checksum_ok() {
+  file=$1
+  if command -v md5sum >/dev/null 2>&1; then
+    printf '%s  %s\n' "$MD5" "$file" | md5sum -c - >/dev/null
+  elif command -v md5 >/dev/null 2>&1; then
+    [ "$(md5 -q "$file")" = "$MD5" ]
+  else
+    printf >&2 'missing md5sum or md5 for checksum verification\n'
+    exit 1
+  fi
+}
+
+download_file() {
+  url=$1
+  out=$2
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL --retry 5 --retry-delay 10 -C - -o "$out" "$url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -c -O "$out" "$url"
+  else
+    printf >&2 'missing curl or wget for downloading\n'
+    exit 1
+  fi
+}
+
+need_cmd tar
+need_cmd find
+need_cmd ln
+
+DOWNLOAD_DIR="${DBROOT}/downloads"
+ARCHIVE="${DOWNLOAD_DIR}/${ARCHIVE_NAME}"
+LINK="${DBROOT}/r232"
+
+printf 'GTDB-Tk database: %s\n' "$VERSION"
+printf 'Destination root: %s\n' "$DBROOT"
+printf 'Download directory: %s\n' "$DOWNLOAD_DIR"
+printf 'Archive: %s\n' "$ARCHIVE"
+
+if [ "$DRY_RUN" = 1 ]; then
+  printf 'Primary URL: %s\n' "$URL"
+  printf 'Mirror URL: %s\n' "$MIRROR_URL"
+  printf 'Expected MD5: %s\n' "$MD5"
+  printf 'Default link: %s\n' "$LINK"
+  exit 0
+fi
+
+if [ "$FORCE" = 0 ] && [ -d "$LINK" ]; then
+  printf 'Existing DBROOT/r232 directory found: %s\n' "$LINK"
+  printf 'Leaving existing database unchanged. Use --force to download and extract again.\n'
+  printf '\nValidate with:\n'
+  printf '  taf-gtdbtk gtdbtk check_install\n'
+  exit 0
+fi
+
+mkdir -p "$DBROOT" "$DOWNLOAD_DIR"
+
+if [ "$FORCE" = 0 ] && [ -s "$ARCHIVE" ] && checksum_ok "$ARCHIVE"; then
+  printf 'Archive already exists and checksum is valid.\n'
+else
+  printf 'Downloading R232 full package from primary URL...\n'
+  if ! download_file "$URL" "$ARCHIVE"; then
+    printf >&2 'Primary download failed; trying mirror URL...\n'
+    download_file "$MIRROR_URL" "$ARCHIVE"
+  fi
+  printf 'Verifying checksum...\n'
+  checksum_ok "$ARCHIVE"
+fi
+
+printf 'Extracting archive under %s ...\n' "$DBROOT"
+tar -xzf "$ARCHIVE" -C "$DBROOT"
+
+RELEASE_DIR="${DBROOT}/release232"
+if [ ! -d "$RELEASE_DIR" ]; then
+  RELEASE_DIR="$(find "$DBROOT" -maxdepth 1 -type d \( -name 'release232' -o -name '*r232*' -o -name 'release*' \) -print | sort | tail -n 1)"
+fi
+
+if [ -z "$RELEASE_DIR" ] || [ ! -d "$RELEASE_DIR" ]; then
+  printf >&2 'could not locate the extracted R232 directory under %s\n' "$DBROOT"
+  exit 1
+fi
+
+if [ -e "$LINK" ] && [ ! -L "$LINK" ]; then
+  printf 'Default path already exists and is not a symlink: %s\n' "$LINK"
+  printf 'Leaving it unchanged. Use TAFFISH_GTDBTK_DATA_PATH=%s if needed.\n' "$RELEASE_DIR"
+else
+  ln -sfn "$RELEASE_DIR" "$LINK"
+  printf 'Default TAFFISH path: %s -> %s\n' "$LINK" "$RELEASE_DIR"
+fi
+
+if [ "$REMOVE_ARCHIVE" = 1 ]; then
+  rm -f "$ARCHIVE"
+  printf 'Removed archive: %s\n' "$ARCHIVE"
+fi
+
+printf '\nDone. Validate with:\n'
+printf '  taf-gtdbtk gtdbtk check_install\n'
+printf '\nFuture taf-gtdbtk runs will automatically reuse:\n'
+printf '  %s\n' "$LINK"
+printf 'when it is installed under a documented personal or site database path.\n'
+printf 'For other locations, use:\n'
+printf '  TAFFISH_GTDBTK_DATA_PATH=%s taf-gtdbtk gtdbtk check_install\n' "$LINK"
