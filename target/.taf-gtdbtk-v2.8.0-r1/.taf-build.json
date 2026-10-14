@@ -1,0 +1,6 @@
+{
+  "artifact": "taf-gtdbtk-v2.8.0-r1",
+  "schema": "taffish.build/v1",
+  "source_sha256": "83473956d413ed707e02f7e1d446b854b885b38840480b9d9695f3ebdb7caa0a",
+  "wrapper_sha256": "52646adcf972dc324ac72047a21b1fc76f9e3fa07fbc627229f51a77de95c234"
+}

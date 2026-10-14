@@ -1,423 +1,252 @@
-# taf-gtdbtk
+# GTDB-Tk
 
-`taf-gtdbtk` packages GTDB-Tk `2.7.2`, a toolkit for assigning objective
-taxonomic classifications to bacterial and archaeal genomes using the Genome
-Taxonomy Database. It is commonly used for MAGs, SAGs, isolate genomes, and
-microbial phylogenomics after assembly and genome-bin quality control.
+`gtdbtk` packages upstream GTDB-Tk **2.8.0**, app release **2.8.0-r1**, for TAFFISH.
+Command: `taf-gtdbtk`; kind: `tool`; packaging license: Apache-2.0.
+Upstream: https://github.com/Ecogenomics/GTDBTk
 
-This image packages the GTDB-Tk runtime and required software dependencies,
-including Prodigal, HMMER, pplacer, FastTree, skani, DendroPy, NumPy, tqdm,
-and pydantic. It intentionally does **not** bundle the GTDB-Tk reference data.
+## What This App Packages
 
-## Package Identity
+The unmodified official Python implementation assigns bacterial and archaeal genomes
+to GTDB taxonomy. This app pins the official OCI content by digest, includes its
+runtime programs, fixes only the broken console launcher for the original
+`gtdb_to_ncbi_majority_vote.py`, and adds a fixed-resource installer.
+It does not bundle the large R232 reference package or download it during classification.
 
-- name: `gtdbtk`
-- command: `taf-gtdbtk`
-- TAFFISH version: `2.7.2-r1`
-- kind: `tool`
-- container: `ghcr.io/taffish/gtdbtk:2.7.2-r1`
-- native platform: `linux/amd64`
-- upstream: GTDB-Tk `2.7.2`
-- upstream runtime version: `gtdbtk --version` prints `gtdbtk: version 2.7.2 Copyright 2017 Pierre-Alain Chaumeil, Aaron Mussig and Donovan Parks`
-- compatible reference data: GTDB-Tk reference package `R232`
+## Scope
 
-## Installation
+Supported upstream commands include classify_wf, de_novo_wf, identify, align, classify,
+infer, tree utilities, check_install and test. Invoke subcommands with the executable
+name: `taf-gtdbtk gtdbtk classify_wf ...`, not `taf-gtdbtk classify_wf ...`.
 
-```sh
-taf install gtdbtk
-```
+The package has no local GUI. Official package entry points/extras and installation
+guidance were inspected: KBase is an independent hosted integration, the GTDB website
+is a public taxonomy browser, and iTOL is a separate downstream tree service.
+`convert_to_itol` remains available; no replacement browser interface is invented.
 
-Then run:
+## Container Contents
 
-```sh
-taf-gtdbtk --help
-taf-gtdbtk -- --help
-taf-gtdbtk gtdbtk --help
-```
+- GTDB-Tk 2.8.0, Python 3.11.17 and its official Python dependencies.
+- Prodigal 2.6.3, HMMER 3.3.2 (including hmmbuild/hmmsearch/hmmalign/hmmpress),
+  pplacer/guppy v1.1.alpha19, FastTree/FastTreeMP 2.1.11 and skani 0.3.2.
+- Both majority-vote command names; curl/wget and standard shell/archive utilities.
+- `gtdbtk-download-r232-db`: fixed R232 installation, offline import and full verification.
+- `gtdbtk-smoke`: packaging probes; tiny fixtures are not a production reference.
 
-## Database Boundary
-
-Real GTDB-Tk classification requires the official GTDB-Tk reference package.
-GTDB-Tk `2.7.2` is compatible with GTDB-Tk reference data `R232`. The reference
-package is about 100 GB and is versioned scientific data, so it belongs in a
-persistent project or site database directory instead of the TAFFISH runtime
-image.
-
-Inside this container, the default reference path is:
-
-```text
-/refdata/
-```
-
-GTDB-Tk reads this path through:
-
-```text
-GTDBTK_DATA_PATH=/refdata/
-```
-
-Download and unpack the database in a persistent host directory using the
-official GTDB-Tk documentation. The fixed full R232 package is available as
-`gtdbtk_r232_data.tar.gz`; after extraction, mount the unarchived directory
-into the container at `/refdata`.
-
-### Container helper for R232 database setup
-
-The image provides a database helper command. By default, it installs into the
-current working directory. This is deliberate: TAFFISH maps the user's current
-working directory into Docker/Podman containers, so a download started from a
-host directory is written back to that same host directory.
-
-The helper creates `downloads/`, stores the fixed R232 full package there,
-verifies the official MD5 checksum, extracts the archive, and creates `r232`
-as the stable database link.
-
-Personal one-time setup:
-
-```sh
-mkdir -p ~/.local/share/taffish/databases/gtdbtk
-cd ~/.local/share/taffish/databases/gtdbtk
-taf-gtdbtk gtdbtk-download-r232-db
-taf-gtdbtk gtdbtk check_install
-```
-
-This creates:
-
-```text
-~/.local/share/taffish/databases/gtdbtk/r232
-```
-
-Future `taf-gtdbtk` runs automatically reuse that path and do not need extra
-database arguments.
-
-Administrator or shared-site setup:
-
-```sh
-sudo mkdir -p /usr/local/share/taffish/databases/gtdbtk
-sudo chown "$(id -u):$(id -g)" /usr/local/share/taffish/databases/gtdbtk
-cd /usr/local/share/taffish/databases/gtdbtk
-taf-gtdbtk gtdbtk-download-r232-db
-sudo chmod -R a+rX /usr/local/share/taffish/databases/gtdbtk
-taf-gtdbtk gtdbtk check_install
-```
-
-This creates:
-
-```text
-/usr/local/share/taffish/databases/gtdbtk/r232
-```
-
-The wrapper can auto-mount this shared path for all users when the container
-backend is allowed to read it. `/opt/taffish/databases/gtdbtk/r232` is also
-checked as an optional site path.
-
-The `chown` command above temporarily hands the empty site directory to the
-current admin user for the download step. On managed systems, adjust
-ownership/group to local policy after the download and keep read/execute
-permissions for users who will run GTDB-Tk.
-
-Use another working directory explicitly:
-
-```sh
-mkdir -p /data/db/gtdbtk
-cd /data/db/gtdbtk
-taf-gtdbtk gtdbtk-download-r232-db
-TAFFISH_GTDBTK_DATA_PATH="$PWD/r232" taf-gtdbtk gtdbtk check_install
-```
-
-For paths outside the documented auto-discovery locations, use
-`TAFFISH_GTDBTK_DATA_PATH` or manual backend bind arguments.
-
-The helper runs inside the container. Arbitrary host absolute paths are not
-mounted just because they are passed to `--db-root`; the safest pattern is to
-`cd` into the host database root and run the helper without `--db-root`. If
-you use `--db-root`, keep it under the current working directory, under `HOME`,
-or under another path that the selected container backend already exposes.
-
-Show helper options:
-
-```sh
-taf-gtdbtk gtdbtk-download-r232-db --help
-```
-
-If `DBROOT/r232` already exists, the helper exits without changing the existing
-database. Use `--force` only when you deliberately want to download and extract
-again.
-
-On rootful Docker/Linux installations, files written by the container may be
-owned by root on the host. If that happens, fix the prepared database root after
-the download:
-
-```sh
-sudo chown -R "$(id -u):$(id -g)" ~/.local/share/taffish/databases/gtdbtk
-```
-
-Use the corresponding site path for a shared database. Rootless Podman and
-Docker Desktop may map ownership differently, so follow the local backend and
-site policy.
-
-### Manual R232 database setup
-
-If you do not want to run the helper command, the equivalent manual setup is:
-
-```sh
-DBROOT="${HOME}/.local/share/taffish/databases/gtdbtk"
-mkdir -p "${DBROOT}/downloads"
-cd "${DBROOT}/downloads"
-
-curl -L -o gtdbtk_r232_data.tar.gz \
-  https://data.gtdb.ecogenomic.org/releases/release232/232.0/auxillary_files/gtdbtk_package/full_package/gtdbtk_r232_data.tar.gz
-
-printf '25a59e0352b1fd150c589f56559767d4  gtdbtk_r232_data.tar.gz\n' | md5sum -c -
-
-tar -xzf gtdbtk_r232_data.tar.gz -C "${DBROOT}"
-```
-
-On macOS, if `md5sum` is unavailable, use `md5 -q gtdbtk_r232_data.tar.gz` and
-compare it with the R232 MD5 value above. If the primary mirror is slow or
-unavailable, the official documentation also lists this GTDB mirror:
-
-```text
-https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/auxillary_files/gtdbtk_package/full_package/gtdbtk_data.tar.gz
-```
-
-After extraction, find the created R232 release directory and point the default
-TAFFISH path at it:
-
-```sh
-find "${DBROOT}" -maxdepth 2 -type d -name 'release*' -print
-ln -sfn "${DBROOT}/<extracted-r232-directory>" "${DBROOT}/r232"
-taf-gtdbtk gtdbtk check_install
-```
-
-Replace `<extracted-r232-directory>` with the directory created by `tar`. The
-symlink is only a convenience; a site database directory such as
-`/data/db/gtdbtk/release232` or `/srv/db/gtdbtk/r232` is equally valid.
-
-### Automatic database discovery
-
-For day-to-day use, this app can automatically mount a local GTDB-Tk database
-to `/refdata`.
-
-Priority:
-
-1. If `TAFFISH_GTDBTK_DATA_PATH` is set and points to a directory, that
-   directory is mounted read-only to `/refdata`.
-2. Otherwise, the first existing auto-discovery path is mounted read-only to
-   `/refdata`:
-
-```text
-~/.local/share/taffish/databases/gtdbtk/r232
-/usr/local/share/taffish/databases/gtdbtk/r232
-/opt/taffish/databases/gtdbtk/r232
-```
-
-This means you can prepare a stable user-level or site-level database location
-once:
-
-```sh
-mkdir -p ~/.local/share/taffish/databases/gtdbtk
-ln -s /abs/path/gtdbtk-r232 ~/.local/share/taffish/databases/gtdbtk/r232
-taf-gtdbtk gtdbtk check_install
-```
-
-For a shared site link:
-
-```sh
-sudo mkdir -p /usr/local/share/taffish/databases/gtdbtk
-sudo ln -sfn /abs/path/gtdbtk-r232 /usr/local/share/taffish/databases/gtdbtk/r232
-taf-gtdbtk gtdbtk check_install
-```
-
-The automatic mount follows the directory to its physical path before passing
-it to Docker, Podman, or Apptainer. This makes a symlink at the default location
-usable as long as the container backend is allowed to read the resolved target.
-If the symlink points to a path that Docker Desktop file sharing, Podman, or
-Apptainer cannot bind/read, automatic discovery can still fail. In that case,
-set `TAFFISH_GTDBTK_DATA_PATH` to the real accessible path or use explicit
-backend run args.
-
-Use a one-off custom database path:
-
-```sh
-TAFFISH_GTDBTK_DATA_PATH=/abs/path/gtdbtk-r232 \
-taf-gtdbtk gtdbtk check_install
-```
-
-Disable automatic mounting if you want to provide all backend runtime arguments
-yourself:
-
-```sh
-TAFFISH_GTDBTK_AUTO_MOUNT=0 \
-TAFFISH_DOCKER_RUN_ARGS="-v /abs/path/gtdbtk-r232:/refdata:ro" \
-taf-gtdbtk gtdbtk check_install
-```
-
-Avoid whitespace in automatically discovered database paths. If a site path is
-unusual, use manual backend run args so you can quote and control it directly.
-
-### Manual backend mounts
-
-Manual mounts are still useful on clusters, shared servers, or sites with
-special storage policy.
-
-For Docker:
-
-```sh
-TAFFISH_CONTAINER_BACKEND=docker \
-TAFFISH_DOCKER_RUN_ARGS="-v /abs/path/gtdbtk-r232:/refdata:ro" \
-taf-gtdbtk gtdbtk check_install
-```
-
-For Podman:
-
-```sh
-TAFFISH_CONTAINER_BACKEND=podman \
-TAFFISH_PODMAN_RUN_ARGS="-v /abs/path/gtdbtk-r232:/refdata:ro" \
-taf-gtdbtk gtdbtk check_install
-```
-
-For Apptainer, bind the database directory and provide the environment variable
-if your runtime does not preserve the image default:
-
-```sh
-TAFFISH_CONTAINER_BACKEND=apptainer \
-TAFFISH_APPTAINER_RUN_ARGS="--bind /abs/path/gtdbtk-r232:/refdata" \
-APPTAINERENV_GTDBTK_DATA_PATH=/refdata/ \
-taf-gtdbtk gtdbtk check_install
-```
-
-## Common Usage
-
-Classify genomes in a directory:
-
-```sh
-taf-gtdbtk gtdbtk classify_wf \
-  --genome_dir genomes/ \
-  --out_dir gtdbtk-out \
-  --cpus 16
-```
-
-Classify a batch file:
-
-```sh
-taf-gtdbtk gtdbtk classify_wf \
-  --batchfile genomes.tsv \
-  --out_dir gtdbtk-out \
-  --cpus 16
-```
-
-Use scratch storage to reduce pplacer memory pressure:
-
-```sh
-mkdir -p scratch gtdbtk-out
-taf-gtdbtk gtdbtk classify_wf \
-  --genome_dir genomes/ \
-  --out_dir gtdbtk-out \
-  --cpus 16 \
-  --pplacer_cpus 1 \
-  --scratch_dir "$PWD/scratch"
-```
-
-Run the upstream test after mounting a real database:
-
-```sh
-taf-gtdbtk gtdbtk test --out_dir gtdbtk-test --cpus 4
-```
-
-## Wrapper and Command Mode
-
-`taf-gtdbtk --help` shows the TAFFISH help in `docs/help.md`.
-
-Use `--` for option-leading upstream calls:
+## Usage
 
 ```sh
 taf-gtdbtk -- --help
-taf-gtdbtk -- --version
+taf-gtdbtk gtdbtk classify_wf --genome_dir genomes --out_dir results \
+  --extension fna --cpus 8 --scratch_dir scratch
+taf-gtdbtk gtdbtk check_install
+taf-gtdbtk gtdb_to_ncbi_majority_vote --help
 ```
 
-Use explicit command mode for GTDB-Tk subcommands:
+Run in a host working directory containing the inputs and writable output/scratch
+directories. Inputs and reference data should stay read-only; outputs go to the
+explicit out_dir. Upstream rejects genome paths containing spaces: use simple paths.
+
+## Backend Usage and Capability Matrix
+
+| Capability | Docker | Podman | Apptainer |
+| --- | --- | --- | --- |
+| Classification after reference setup | `TAFFISH_CONTAINER_BACKEND=docker taf-gtdbtk gtdbtk classify_wf ...` | `TAFFISH_CONTAINER_BACKEND=podman taf-gtdbtk gtdbtk classify_wf ...` | `TAFFISH_CONTAINER_BACKEND=apptainer taf-gtdbtk gtdbtk classify_wf ...` |
+| Install / verify | Same helper, host-bound working directory | Same helper, host-bound working directory | Same helper, host-bound working directory |
+| Automatic reference discovery | Read-only /refdata volume | Read-only /refdata volume | Read-only /refdata bind |
+| Native platform | linux/amd64 | linux/amd64 | linux/amd64 |
+
+Docker/Podman automatically request linux/amd64. On an arm64 host this is emulation,
+not native ARM support; an engine with working amd64 emulation is required.
+The amd64 SIF is not supported natively on ARM Linux. Use an amd64 Linux host instead.
+No GPU or service ports are needed. See Testing for measured coverage.
+
+## Command Mode
+
+Non-option-leading arguments use automatic command mode. `taf-gtdbtk python3 ...`
+and `taf-gtdbtk gtdbtk classify ...` select an executable in the same container.
+Wrapper `--help`/`--version` describe the app; `-- --help`/`-- --version`
+reach upstream. `--compile` prints the generated invocation without running it.
+
+## Inputs
+
+| Input | Meaning | Notes |
+| --- | --- | --- |
+| Genome directory or batchfile | Nucleotide FASTA genomes | Explicit extension; no whitespace in genome paths |
+| R232 reference | Fixed external reference package | Required even by several upstream tree commands |
+| out_dir / scratch_dir | Persistent results / temporary pplacer workspace | Must be writable host-bound paths |
+
+## Output Notes
+
+Classification writes bacterial/archaeal summary TSVs, marker/ANI results, trees,
+logs and stage JSON under out_dir. Version 2.8.0 also records unassigned ANI hits in
+`classify/ani_screen/<prefix>.ani_screen_unassigned_hits.tsv.gz`.
+It changes species assignment to the closest AF-qualified reference and its ANI
+radius, with at most 50 related references. Do not mix stage directories from
+different versions: older releases cannot resume 2.8.0 outputs; a pre-2.8 directory
+may require ANI to run again. Results need normal scientific quality review.
+
+## Resources, Databases, and Platform
+
+Resource type: one independently fixed full R232/232.0 package, not a selectable
+whole catalog. Official URL and MD5 are compiled into the helper:
+https://data.gtdb.ecogenomic.org/releases/release232/232.0/auxillary_files/gtdbtk_package/full_package/gtdbtk_r232_data.tar.gz
+MD5: `25a59e0352b1fd150c589f56559767d4`; compressed size: 60,806,405,195 bytes.
+Unpacked data are about 98 GB. The installer conservatively reserves 110 GiB for
+extraction plus 1 GiB, in addition to a missing compressed cache. Plan roughly
+170 GiB of available installation space and sufficient classification RAM (often
+100–140 GB, depending on the workflow). The archive is retained for recovery.
+
+Personal installation, with a separate command shown for each backend:
 
 ```sh
-taf-gtdbtk gtdbtk classify_wf --help
-taf-gtdbtk gtdbtk de_novo_wf --help
-taf-gtdbtk gtdbtk check_install
+mkdir -p "$HOME/.local/share/taffish/databases/gtdbtk"
+chmod 0755 "$HOME/.local/share/taffish/databases/gtdbtk"
+cd "$HOME/.local/share/taffish/databases/gtdbtk"
+TAFFISH_CONTAINER_BACKEND=docker taf-gtdbtk gtdbtk-download-r232-db --db-root .
+# Alternatively:
+TAFFISH_CONTAINER_BACKEND=podman taf-gtdbtk gtdbtk-download-r232-db --db-root .
+TAFFISH_CONTAINER_BACKEND=apptainer taf-gtdbtk gtdbtk-download-r232-db --db-root .
 ```
 
-Do not write `taf-gtdbtk classify_wf ...` directly. With TAFFISH command mode,
-`classify_wf` would be treated as a container executable, while GTDB-Tk expects
-`classify_wf` to be a subcommand of `gtdbtk`.
+Only run one installer, not all three. The physical parent must exist and not be
+group/world writable. Container paths are not host installation paths: working in
+the destination parent ensures the wrapper binds the actual host directory.
+Use a non-symlink parent; macOS aliases such as /var may resolve to /private/var.
 
-## Packaged Commands
+On rootful Docker, request your host UID for personally owned outputs:
+`export TAFFISH_DOCKER_RUN_ARGS="--user $(id -u):$(id -g)"` before installation.
+On rootless Podman, `export TAFFISH_PODMAN_RUN_ARGS='--userns keep-id'` preserves
+your user identity. Apptainer normally keeps the invoking user. Do not change
+ownership of shared databases merely to run an ordinary analysis.
 
-The image includes:
+For **administrator-once shared installation**, an administrator creates a physical
+0755 parent such as `/usr/local/share/taffish/databases/gtdbtk`, enters it and invokes
+one of the same backend commands using that administrator's installed wrapper and
+configured engine. This is an explicit administrative operation, not a sudo feature
+of the helper. Ordinary users must be able to traverse all parent directories.
+The installed r232 directories are 0755 and files 0644, allowing read-only reuse.
+The cache stays 0700 and lock 0600. Users run classification without downloading again.
 
-- `gtdbtk`
-- `gtdbtk-download-r232-db`
-- `gtdb_to_ncbi_majority_vote` and `gtdb_to_ncbi_majority_vote.py`
-- `prodigal`
-- HMMER tools such as `hmmsearch`, `hmmalign`, `hmmscan`, `hmmpress`, `hmmstat`
-- `pplacer` and `guppy`
-- `FastTree` and `FastTreeMP`
-- `skani`
-- `python3`, `bash`, `curl`, `wget`, `md5sum`, `gzip`, `tar`, `awk`, `sed`, `grep`
+Automatic selection (first existing candidate, fail closed if invalid):
 
-The upstream Docker image ships a broken `gtdb_to_ncbi_majority_vote` console
-script entry point. This TAFFISH image keeps the original Python script and
-replaces the console wrapper so the helper command works.
+1. Explicit `TAFFISH_GTDBTK_DATA_PATH` (exact r232 root).
+2. `$HOME/.local/share/taffish/databases/gtdbtk/r232`.
+3. `/usr/local/share/taffish/databases/gtdbtk/r232`.
+4. `/opt/taffish/databases/gtdbtk/r232`.
 
-## Outputs
+`TAFFISH_GTDBTK_AUTO_MOUNT=0` disables this; 1 enables it. No database is silently
+selected when an explicit path or higher-priority prepared resource is invalid.
+Root symlinks are resolved to their physical target; links inside the resource
+and group/world-writable resources are rejected. Bind paths with whitespace or
+reserved characters need a manually quoted bind. Discovery checks the control
+file checksums and file sizes, not every byte of a ~98 GB database on every run.
+Use full SHA256 verification after storage transfer or suspected corruption.
 
-`classify_wf` writes GTDB-Tk output under the requested `--out_dir`, including
-domain summary tables such as:
+```sh
+cd "$HOME/.local/share/taffish/databases/gtdbtk"
+TAFFISH_CONTAINER_BACKEND=docker taf-gtdbtk gtdbtk-download-r232-db --verify --db-root .
+TAFFISH_CONTAINER_BACKEND=podman taf-gtdbtk gtdbtk-download-r232-db --verify --db-root .
+TAFFISH_CONTAINER_BACKEND=apptainer taf-gtdbtk gtdbtk-download-r232-db --verify --db-root .
+```
 
-- `gtdbtk.bac120.summary.tsv`
-- `gtdbtk.ar53.summary.tsv`
-- marker, alignment, tree, and log files depending on inputs and options
+Existing official databases without the new inventory do not require re-download.
+Disable automatic discovery, bind them explicitly and use upstream check_install:
 
-Use `--prefix` if you want output files to use a prefix other than `gtdbtk`.
+```sh
+TAFFISH_GTDBTK_AUTO_MOUNT=0 TAFFISH_CONTAINER_BACKEND=docker \
+  TAFFISH_DOCKER_RUN_ARGS='--volume="/data/gtdb/r232:/refdata:ro"' \
+  taf-gtdbtk gtdbtk check_install
+TAFFISH_GTDBTK_AUTO_MOUNT=0 TAFFISH_CONTAINER_BACKEND=podman \
+  TAFFISH_PODMAN_RUN_ARGS='--volume="/data/gtdb/r232:/refdata:ro"' \
+  taf-gtdbtk gtdbtk check_install
+TAFFISH_GTDBTK_AUTO_MOUNT=0 TAFFISH_CONTAINER_BACKEND=apptainer \
+  TAFFISH_APPTAINER_RUN_ARGS='--bind="/data/gtdb/r232:/refdata:ro"' \
+  taf-gtdbtk gtdbtk check_install
+```
 
-## Platform and Resources
+The same manual binds work for classify_wf. They are optional site policies, not
+required platform flags. The reference is always mounted read-only.
 
-This app is native `linux/amd64` only. The official upstream Docker image for
-GTDB-Tk `2.7.2` publishes an amd64 manifest. The `src/main.taf` wrapper embeds
-Docker/Podman `--platform linux/amd64` runtime args so arm64 hosts can run the
-image through amd64 emulation when Docker or Podman supports it. This is not
-native arm64 support.
+### Installation safety and recovery
 
-GTDB-Tk is resource intensive. The official documentation lists approximate
-requirements of about 100 GB RAM for archaeal classification, about 140 GB RAM
-for bacterial classification, and much more for `--full_tree`. The reference
-data is about 100 GB. Large runs should be scheduled on a server or HPC node
-with sufficient memory, CPU, scratch space, and I/O bandwidth.
+The helper verifies fixed archive size and official MD5, records archive SHA256,
+unpacks in a private staging directory, rejects traversal/links/devices, writes a
+per-file SHA256 inventory and only then atomically publishes r232. A lock prevents
+concurrent installation. Existing r232 must pass full verification; it is never
+overwritten. There is no --force. Old directory-presence-only behavior is removed.
+
+A failed HTTPS transfer preserves `.r232.cache/<fixed-md5>.part`; rerun the same
+command to resume. Do not change the URL or checksum to bypass a mismatch.
+A checksum failure keeps the partial for inspection: remove only that named file
+after confirming it is corrupt, then retry. A verified cache is reused after an
+extraction failure. Normal exceptions clean only the current private staging tree.
+A killed process can leave `.r232.stage-*`; inspect ownership and ensure no installer
+is active before removing the exact leftover directory. The final r232 remains
+absent or untouched, never a partial success. flock is released by process exit.
+
+For offline import, place the exact official archive in the bound working directory:
+
+```sh
+TAFFISH_GTDBTK_AUTO_MOUNT=0 TAFFISH_CONTAINER_BACKEND=docker taf-gtdbtk gtdbtk-download-r232-db --db-root . --source-archive gtdbtk_r232_data.tar.gz
+TAFFISH_GTDBTK_AUTO_MOUNT=0 TAFFISH_CONTAINER_BACKEND=podman taf-gtdbtk gtdbtk-download-r232-db --db-root . --source-archive gtdbtk_r232_data.tar.gz
+TAFFISH_GTDBTK_AUTO_MOUNT=0 TAFFISH_CONTAINER_BACKEND=apptainer taf-gtdbtk gtdbtk-download-r232-db --db-root . --source-archive gtdbtk_r232_data.tar.gz
+```
+
+Import enforces the same identity and does not accept arbitrary resources. Full
+verification may take substantial time. Preserve an old installation and install
+in another parent when recovery requires replacement, then explicitly switch.
 
 ## Boundaries
 
-This app is a GTDB-Tk runtime, not a metagenome assembly, binning, dereplication,
-or genome-quality workflow. It does not run MEGAHIT, MetaBAT2, CheckM2, CheckM,
-dRep, QUAST, BUSCO, or downstream abundance/statistical analysis.
+The official fixed image is amd64-only. Upstream scientific code and taxonomy are
+not modified. GTDB data use CC-BY-SA-4.0 separately from software/package licenses;
+preserve attribution and component notices. Normal analysis requires no download.
+Upstream --version can attempt a short best-effort PyPI update lookup; it also works
+offline. Source identity does not guarantee permanent registry or resource hosting.
 
-The GTDB-Tk reference package is not bundled. The packaged
-`gtdbtk-download-r232-db` helper downloads the R232 database only when the user
-runs it explicitly; it requires network access and persistent storage. Offline
-classification requires that the compatible R232 reference data has already
-been downloaded, unpacked, and made available through automatic discovery,
-`TAFFISH_GTDBTK_DATA_PATH`, or a manual backend mount to `/refdata`.
+## Troubleshooting
 
-Smoke tests are intentionally offline. They check the runtime version,
-subcommand help, Python imports, key dependency versions, the fixed majority
-vote helper, and the missing-reference-data boundary. They do not validate
-biological classification accuracy on the production R232 database.
+- Missing/corrupt reference: prepare R232, verify it, or use an explicit legacy bind.
+- Empty r232: no longer accepted as an installed database. Preserve it for inspection.
+- Wrong reference or permissions: do not fall back silently; correct the selected path.
+- OOM or disk exhaustion: lower concurrency/use an adequately provisioned amd64 host.
+- Installer cannot write: ensure --db-root is the actual writable host-bound parent.
 
-## Upstream and Citation
+## Testing
 
-- upstream repository: https://github.com/Ecogenomics/GTDBTk
-- upstream documentation: https://ecogenomics.github.io/GTDBTk/
-- upstream release/tag: https://github.com/Ecogenomics/GTDBTk/tree/2.7.2
-- GTDB-Tk reference data docs: https://ecogenomics.github.io/GTDBTk/installing/index.html#gtdb-tk-reference-data
-- publication: Chaumeil et al. 2022, Bioinformatics
-- DOI: `10.1093/bioinformatics/btac672`
-- publication: Chaumeil et al. 2019, Bioinformatics
-- DOI: `10.1093/bioinformatics/btz848`
+The unpublished 2.8.0-r1 candidate passed native amd64 validation on xjp:
 
-The TAFFISH app files are Apache-2.0. Upstream GTDB-Tk is GPL-3.0-or-later;
-the upstream license applies to the packaged GTDB-Tk runtime and dependencies.
+- 185 independent fresh/offline probes: 31 individual existence checks, combined
+  existence and five exact manifest tests, across Docker/Podman normal + read-only
+  roots and an actual read-only Apptainer SIF from the same OCI image.
+- 73 real-wrapper checks across all three backends: metadata, arguments, real tree
+  and HMMER/FastTree tasks, actual host-bound tiny install/recovery/idempotence,
+  discovery, override/disable, symlinks, corrupt/extra members, manual fallback,
+  read-only reference protection and ordinary-user ownership.
+- 16 discovery-order tests in translated private test paths. These do not prove
+  real administrator deployment into system directories.
+- 18 resource transaction unit tests and 17 unchanged official upstream regression
+  tests. All 70 installed GTDB-Tk Python files match the official 2.8.0 source tag.
+- Final image 356,599,184 bytes (official base 2,934,344,078 bytes). Build toolchains,
+  developer headers and caches are removed; runtime libraries and license notices
+  are retained. 372 collected notice/source-pointer files and 137 installed Debian
+  copyright files remain. Build-time gates only cover stable identity/import/help.
+
+Docker, Podman and Apptainer are PASS for this packaging scope; backend exception:
+none. ARM-host amd64 emulation is not separately validated. No native arm64 image
+is claimed. The wrapper's batch inventory checks avoid a subprocess per database
+file; full hashes are deliberately an explicit verification task.
+
+A metadata-only fixture is not a complete R232 database. Complete R232 download,
+installation, check_install, production classification and genuine root/site
+deployment remain not validated: this run deliberately did not acquire the ~98 GB
+reference. Tiny tests and upstream unit tests do not prove production accuracy.
+
+## License and Citation
+
+TAFFISH packaging: Apache-2.0. GTDB-Tk: GPL-3.0-or-later. Bundled dependencies retain
+their respective licenses and notices. GTDB resources: CC-BY-SA-4.0
+(https://gtdb.ecogenomic.org/licenses).
+
+Cite Chaumeil et al. (2022), DOI 10.1093/bioinformatics/btac672, and Chaumeil et al.
+(2019), DOI 10.1093/bioinformatics/btz848, plus the GTDB release used.

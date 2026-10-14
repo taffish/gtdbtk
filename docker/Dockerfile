@@ -1,71 +1,34 @@
-ARG GTDBTK_BASE_PLATFORM=linux/amd64
-FROM --platform=${GTDBTK_BASE_PLATFORM} docker.io/ecogenomic/gtdbtk:2.7.2@sha256:78ebc71b8de215fab505ed2b960f08df4923980d9acfcd0088996df483652cb0
-
-LABEL maintainer="taffish@163.com"
-
+# 官方 2.8.0 内容按不可变 digest 固定；上游暂未提供同名 tag，不跟随 latest。
+# digest 保证内容身份，不保证 registry 永久保存。404/限流先诊断来源；不要跳过校验。
+FROM --platform=linux/amd64 docker.io/ecogenomic/gtdbtk@sha256:6a5494765450f42e7a636d58dd84a0def26d56a89b049df8ef24956035e56052 AS prepared
 USER root
-
-ENV GTDBTK_DATA_PATH=/refdata/
-
-ENTRYPOINT []
-CMD []
 SHELL ["/bin/sh", "-c"]
 
-COPY docker/gtdbtk-download-r232-db /usr/local/bin/gtdbtk-download-r232-db
-
+COPY docker/gtdbtk-download-r232-db docker/gtdbtk_resources.py docker/gtdbtk-smoke /usr/local/bin/
 RUN set -eux; \
-    chmod 0755 /usr/local/bin/gtdbtk-download-r232-db; \
-    printf '%s\n' \
-      '#!/bin/sh' \
-      'exec /usr/local/bin/gtdb_to_ncbi_majority_vote.py "$@"' \
-      > /usr/local/bin/gtdb_to_ncbi_majority_vote; \
-    chmod 0755 /usr/local/bin/gtdb_to_ncbi_majority_vote
+    chmod 0755 /usr/local/bin/gtdbtk-download-r232-db /usr/local/bin/gtdbtk-smoke; \
+    printf '%s\n' '#!/bin/sh' 'exec /usr/local/bin/gtdb_to_ncbi_majority_vote.py "$@"' > /usr/local/bin/gtdb_to_ncbi_majority_vote; \
+    chmod 0755 /usr/local/bin/gtdb_to_ncbi_majority_vote; \
+    mkdir -p /usr/local/share/licenses/taffish-gtdbtk/build-origin; \
+    find /root/.cargo /root/.rustup -type f \( -iname 'license*' -o -iname 'copying*' -o -iname 'notice*' -o -iname 'copyright*' \) \
+      -exec cp --parents -t /usr/local/share/licenses/taffish-gtdbtk/build-origin '{}' +; \
+    apt-get purge -y build-essential gcc gcc-12 g++ g++-12 cpp cpp-12 \
+      binutils binutils-common binutils-x86-64-linux-gnu libc6-dev libc-dev-bin \
+      linux-libc-dev libstdc++-12-dev libgcc-12-dev dpkg-dev make patch; \
+    rm -rf /root/.cargo /root/.rustup /root/.cache /var/lib/apt/lists/*; \
+    find /usr/local/lib -type d -name __pycache__ -prune -exec rm -rf '{}' +
 
-RUN set -eux; \
-    gtdbtk --version 2>&1 | grep -Fx "gtdbtk: version 2.7.2 Copyright 2017 Pierre-Alain Chaumeil, Aaron Mussig and Donovan Parks" >/dev/null; \
-    gtdbtk --help 2>&1 | grep -F "GTDB-Tk v2.7.2" >/dev/null; \
-    gtdbtk classify_wf --help 2>&1 | grep -F "usage: gtdbtk classify_wf" >/dev/null; \
-    gtdbtk de_novo_wf --help 2>&1 | grep -F "usage: gtdbtk de_novo_wf" >/dev/null; \
-    gtdbtk identify --help 2>&1 | grep -F "usage: gtdbtk identify" >/dev/null; \
-    gtdbtk align --help 2>&1 | grep -F "usage: gtdbtk align" >/dev/null; \
-    gtdbtk check_install --help 2>&1 | grep -F "GTDB-Tk version package to test for compatibility" >/dev/null; \
-    gtdbtk test --help 2>&1 | grep -F "usage: gtdbtk test" >/dev/null; \
-    python3 -c 'import gtdbtk, dendropy, numpy, tqdm, pydantic; assert gtdbtk.__version__ == "2.7.2"'; \
-    gtdb_to_ncbi_majority_vote --help 2>&1 | grep -F "GTDB to NCBI Majority Vote v0.2.1" >/dev/null; \
-    gtdb_to_ncbi_majority_vote.py --help 2>&1 | grep -F "Translate GTDB to NCBI classification via majority vote" >/dev/null; \
-    gtdbtk-download-r232-db --help 2>&1 | grep -F "Download and install the GTDB-Tk R232 reference package" >/dev/null; \
-    tmp=/tmp/taf-gtdbtk-r232-db; \
-    rm -rf "${tmp}"; \
-    mkdir -p "${tmp}"; \
-    (cd "${tmp}" && gtdbtk-download-r232-db --dry-run 2>&1 | grep -F "Download directory: ${tmp}/downloads" >/dev/null); \
-    mkdir -p "${tmp}/existing/r232"; \
-    gtdbtk-download-r232-db --db-root "${tmp}/existing" 2>&1 | grep -F "Existing DBROOT/r232 directory found: ${tmp}/existing/r232" >/dev/null; \
-    gtdbtk-download-r232-db --dry-run --db-root /tmp/taf-gtdbtk-r232-db-explicit 2>&1 | grep -F "Expected MD5: 25a59e0352b1fd150c589f56559767d4" >/dev/null; \
-    rm -rf "${tmp}"; \
-    prodigal -v 2>&1 | grep -F "Prodigal V2.6.3" >/dev/null; \
-    hmmsearch -h 2>&1 | grep -F "# HMMER 3.3.2" >/dev/null; \
-    hmmalign -h 2>&1 | grep -F "# HMMER 3.3.2" >/dev/null; \
-    pplacer --version 2>&1 | grep -Fx "v1.1.alpha19-0-g807f6f3" >/dev/null; \
-    guppy --version 2>&1 | grep -Fx "v1.1.alpha19-0-g807f6f3" >/dev/null; \
-    FastTree 2>&1 | grep -F "FastTree Version 2.1.11" >/dev/null; \
-    FastTreeMP 2>&1 | grep -F "FastTree Version 2.1.11" >/dev/null; \
-    skani -V 2>&1 | grep -Fx "skani 0.3.1" >/dev/null
-
-RUN set -eux; \
-    tmp=/tmp/taf-gtdbtk-no-db; \
-    rm -rf "${tmp}"; \
-    mkdir -p "${tmp}/genomes"; \
-    printf '>tiny\nATGAAATAA\n' > "${tmp}/genomes/tiny.fna"; \
-    if gtdbtk classify_wf --genome_dir "${tmp}/genomes" --out_dir "${tmp}/out" --cpus 1 >"${tmp}/run.log" 2>&1; then \
-      cat "${tmp}/run.log" >&2; \
-      exit 1; \
-    fi; \
-    grep -F "The GTDB-Tk reference data does not exist or is corrupted." "${tmp}/run.log" >/dev/null; \
-    grep -F "GTDBTK_DATA_PATH=/refdata/" "${tmp}/run.log" >/dev/null; \
-    test ! -e "${tmp}/out/gtdbtk.bac120.summary.tsv"; \
-    rm -rf "${tmp}"
-
-WORKDIR /root
-
-ENV TAFFISH_ENV=TAFFISH
-ENV TAFFISH_NAME=gtdbtk
+# 官方镜像历史中有构建工具链；只移除明确的开发包，不 autoremove，保留运行库及其许可文本。
+# 不重解 apt/pip 依赖；将来更新 digest 时重新核验 Python 源码、依赖、体积及离线三后端。
+FROM scratch
+COPY --from=prepared / /
+COPY docker/licenses/ /usr/local/share/licenses/taffish-gtdbtk/
+ENV PATH=/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin \
+    LANG=C.UTF-8 GTDBTK_DATA_PATH=/refdata/ PYTHONDONTWRITEBYTECODE=1 \
+    TAFFISH_ENV=TAFFISH TAFFISH_NAME=gtdbtk
+SHELL ["/bin/sh", "-c"]
+ENTRYPOINT []
+CMD []
+WORKDIR /tmp
+# 构建期仅稳定版本/import/help。真实 tiny 和外部资源恢复在 runtime 离线验证，不伪造完整数据库。
+RUN gtdbtk-smoke identity && gtdbtk-smoke help

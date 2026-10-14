@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""Offline packaging probes, not full R232 classification validation."""
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+
+def run(args, text=None, env=None, ok=True):
+    p = subprocess.run(args,input=text,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,env=env)
+    if ok and p.returncode:
+        raise RuntimeError('%r exit=%s\n%s' % (args,p.returncode,p.stdout))
+    return p
+
+def identity():
+    import gtdbtk, dendropy, numpy, tqdm, pydantic
+    assert gtdbtk.__version__ == '2.8.0'
+    assert 'gtdbtk: version 2.8.0 ' in run(['gtdbtk','--version']).stdout
+
+def help_check():
+    assert 'GTDB-Tk v2.8.0' in run(['gtdbtk','--help']).stdout
+    for cmd in ['classify_wf','de_novo_wf','identify','align','classify','infer','remove_labels','trim_msa','check_install','test']:
+        assert 'usage: gtdbtk '+cmd in run(['gtdbtk',cmd,'--help']).stdout
+    for cmd in ['gtdb_to_ncbi_majority_vote','gtdb_to_ncbi_majority_vote.py']:
+        assert 'majority vote' in run([cmd,'--help']).stdout.lower()
+    assert 'fixed GTDB-Tk R232' in run(['gtdbtk-download-r232-db','--help']).stdout
+    dry = json.loads(run(['gtdbtk-download-r232-db','--dry-run']).stdout)
+    assert dry['resource']['md5']=='25a59e0352b1fd150c589f56559767d4'
+
+def dependencies():
+    for cmd,option,expected in [('prodigal','-v','V2.6.3'),('hmmsearch','-h','HMMER 3.3.2'),
+          ('hmmalign','-h','HMMER 3.3.2'),('pplacer','--version','v1.1.alpha19'),
+          ('guppy','--version','v1.1.alpha19'),('FastTree',None,'FastTree Version 2.1.11'),
+          ('FastTreeMP',None,'FastTree Version 2.1.11'),('skani','-V','skani 0.3.2')]:
+        # Some upstream help/version commands deliberately return nonzero.
+        assert expected in run([cmd]+([option] if option else []),text='',ok=False).stdout, cmd
+
+def tiny():
+    with tempfile.TemporaryDirectory(prefix='gtdbtk-smoke-') as temp:
+        root=Path(temp)
+        meta=root/'metadata-only/metadata'; meta.mkdir(parents=True)
+        (meta/'metadata.txt').write_text('VERSION_DATA=r232\nRED_DIST_BAC_DICT={}\nRED_DIST_ARC_DICT={}\n')
+        tree=root/'input.tree'; tree.write_text('((a:1,b:1)named:1,c:2)root;\n')
+        env=dict(os.environ,GTDBTK_DATA_PATH=str(meta.parent))
+        out=root/'clean.tree'
+        run(['gtdbtk','remove_labels','--input_tree',str(tree),'--output_tree',str(out)],env=env)
+        import dendropy
+        parsed=dendropy.Tree.get(path=str(out),schema='newick')
+        assert {n.taxon.label for n in parsed.leaf_node_iter()}=={'a','b','c'}
+        assert not any(n.label for n in parsed.internal_nodes())
+        msa='>a\nACGTACGTACGTACGTACGT\n>b\nACGTACGTACGTACGTACGA\n>c\nTCGTACGTACGTACGTACGT\n'
+        result=run(['FastTree','-nt','-nosupport'],text=msa)
+        assert 'a:' in result.stdout
+        alignment=root/'tiny.fa'; alignment.write_text('>a\nMKTIIALSYIFCLVFADYKDDDDK\n>b\nMKTIIALSYIFCLVFADYKDDDDK\n')
+        hmm=root/'tiny.hmm'
+        run(['hmmbuild',str(hmm),str(alignment)])
+        tbl=root/'hits.tbl'
+        run(['hmmsearch','--tblout',str(tbl),str(hmm),str(alignment)])
+        assert any(line.startswith('a ') for line in tbl.read_text().splitlines())
+        print('metadata-only tree utility, FastTree and HMMER real paths passed; no full R232 classification')
+
+def missing():
+    with tempfile.TemporaryDirectory(prefix='gtdbtk-missing-') as temp:
+        root=Path(temp); (root/'genomes').mkdir(); (root/'genomes/tiny.fna').write_text('>tiny\nATGAAATAA\n')
+        p=run(['gtdbtk','classify_wf','--genome_dir',str(root/'genomes'),'--out_dir',str(root/'out'),'--cpus','1'],
+              env=dict(os.environ,GTDBTK_DATA_PATH=str(root/'absent')),ok=False)
+        assert p.returncode != 0 and 'reference data does not exist or is corrupted' in p.stdout
+        assert not (root/'out/gtdbtk.bac120.summary.tsv').exists()
+        (root/'empty').mkdir(); (root/'empty/r232').mkdir()
+        p=run(['gtdbtk-download-r232-db','--db-root',str(root/'empty')],ok=False)
+        assert p.returncode != 0
+
+if __name__=='__main__':
+    {'identity':identity,'help':help_check,'dependencies':dependencies,'tiny':tiny,'missing':missing}[sys.argv[1]]()
+    print('PASS '+sys.argv[1])
